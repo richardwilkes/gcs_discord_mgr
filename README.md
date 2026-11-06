@@ -95,7 +95,8 @@ This is what sponsors see when they run `/link`, so give it a name they will rec
 
 1. On GitHub, go to **Settings** → **Developer settings** → **Personal access tokens** → **Tokens (classic)** →
    **Generate new token** → **Generate new token (classic)**. This must be done as the account being sponsored.
-2. Enter a note, choose an expiration, and under **user** check only `read:user`.
+2. Enter a note, choose an expiration, then under **user** check `read:user` and under **admin:org** check
+   `read:org`. The `read:org` scope is needed because the sponsors query can return organization sponsors.
 3. Click **Generate token** and copy it. This is `github_token`.
 
 When the token expires the bot logs an error on every pass and stops changing roles until it is replaced.

@@ -33,7 +33,7 @@ discord_token: ""
 # ID of the Discord server. With Developer Mode enabled, right-click the server and choose Copy Server ID.
 guild_id: ""
 
-# Classic GitHub personal access token for the sponsored account, with only the read:user scope.
+# Classic GitHub personal access token for the sponsored account, with the read:user and read:org scopes.
 github_token: ""
 
 # Client ID of a GitHub OAuth app that has "Enable Device Flow" checked.
