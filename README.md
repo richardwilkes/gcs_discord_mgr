@@ -176,3 +176,49 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 ```
+
+## Updating
+
+The bot keeps no state in memory that matters across a restart — the links are in `links.json` and everything else is
+re-fetched — so updating is just replacing the binary and restarting. The only cost is that the bot is offline for a
+moment and the next poll starts the interval over.
+
+1. Get the new code and build it:
+
+   ```
+   git pull
+   ./build.sh --all
+   ```
+
+   `--all` also runs the linters and the tests with race checking; stop here if anything fails.
+
+2. If the service runs a copy of the binary rather than the build output itself, replace the copy:
+
+   ```
+   sudo cp gcs_discord_mgr /usr/local/bin/
+   ```
+
+   If the service points straight at the build output, the build already replaced the file, but the running process
+   still has the old code loaded until it is restarted.
+
+3. Restart the service. Both launchd (`KeepAlive`) and systemd (`Restart=always`) are configured to restart the
+   program, so ask them to do it rather than killing the process by hand:
+
+   macOS:
+
+   ```
+   launchctl kickstart -k gui/$(id -u)/com.trollworks.gcs-discord-mgr
+   ```
+
+   Linux:
+
+   ```
+   sudo systemctl restart gcs-discord-mgr
+   ```
+
+4. Confirm it came back: the log shows a new `connected` line and the bot appears online in the server's member list.
+   On macOS, `launchctl list | grep gcs-discord-mgr` should show a PID and a last-exit status of 0; on Linux,
+   `systemctl status gcs-discord-mgr` should report it active.
+
+If the new version misbehaves, put the previous binary back (`git checkout <old-tag-or-commit>` and rebuild, or restore
+the saved copy) and restart the service the same way.
