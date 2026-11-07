@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/richardwilkes/toolbox/v2/errs"
@@ -31,6 +32,7 @@ const (
 	cmdUnlink  = "unlink"
 	cmdSponsor = "sponsor"
 	subAudit   = "audit"
+	subList    = "list"
 	subSync    = "sync"
 	optMember  = "member"
 	optGitHub  = "github"
@@ -121,6 +123,11 @@ func commands() []*discordgo.ApplicationCommand {
 					Name:        cmdUnlink,
 					Description: "Remove a member's link, along with their sponsor roles",
 					Options:     []*discordgo.ApplicationCommandOption{memberOption},
+				},
+				{
+					Type:        discordgo.ApplicationCommandOptionSubCommand,
+					Name:        subList,
+					Description: "List the active sponsors, their linked members and the roles they hold",
 				},
 				{
 					Type:        discordgo.ApplicationCommandOptionSubCommand,
@@ -508,8 +515,10 @@ func (b *bot) onInteraction(_ *discordgo.Session, i *discordgo.InteractionCreate
 			b.adminLink(i, sub)
 		case cmdUnlink:
 			b.adminUnlink(i, sub)
+		case subList:
+			b.adminReport(i, "sponsors.txt", sponsorList)
 		case subAudit:
-			b.adminAudit(i)
+			b.adminReport(i, "sponsor-audit.txt", audit)
 		case subSync:
 			b.adminSync(i)
 		}
@@ -669,7 +678,14 @@ func (b *bot) adminSync(i *discordgo.InteractionCreate) {
 	b.reply(i, msg)
 }
 
-func (b *bot) adminAudit(i *discordgo.InteractionCreate) {
+// reportFunc builds a report from the sponsors, links and members, as a one-line summary and the full text.
+type reportFunc func(
+	cfg *config, links map[string]link, sponsors map[int64]sponsor, members []*discordgo.Member,
+) (summary, report string)
+
+// adminReport fetches the sponsors and members, then replies with the summary of the report built from them,
+// attaching the full report as a file.
+func (b *bot) adminReport(i *discordgo.InteractionCreate, fileName string, build reportFunc) {
 	sponsors, err := b.refreshSponsors()
 	if err != nil {
 		errs.Log(err)
@@ -682,9 +698,9 @@ func (b *bot) adminAudit(i *discordgo.InteractionCreate) {
 		b.reply(i, msgTryLater)
 		return
 	}
-	summary, report := audit(b.cfg, b.links.all(), sponsors, members)
+	summary, report := build(b.cfg, b.links.all(), sponsors, members)
 	b.reply(i, summary, &discordgo.File{
-		Name:        "sponsor-audit.txt",
+		Name:        fileName,
 		ContentType: "text/plain",
 		Reader:      strings.NewReader(report),
 	})
@@ -706,13 +722,7 @@ func audit(
 			}
 			continue
 		}
-		var held []string
-		for _, role := range m.Roles {
-			if label := cfg.roleLabel(role); label != "" {
-				held = append(held, label)
-			}
-		}
-		if len(held) != 0 {
+		if held := cfg.heldLabels(m.Roles); len(held) != 0 {
 			unlinkedHolders = append(unlinkedHolders, who+": "+strings.Join(held, ", "))
 		}
 	}
@@ -751,4 +761,86 @@ func audit(
 		"%d links are for members who have left, and %d sponsors (%d of them private) are not linked.",
 		len(unlinkedHolders), len(lapsed), len(departed), len(unlinkedSponsors)+privateSponsors, privateSponsors)
 	return summary, buffer.String()
+}
+
+// sponsorList reports every active sponsor with the member they are linked to and the sponsor roles that member
+// holds. Private sponsors who have not linked are counted but not named.
+func sponsorList(
+	cfg *config, links map[string]link, sponsors map[int64]sponsor, members []*discordgo.Member,
+) (summary, report string) {
+	byID := make(map[string]*discordgo.Member, len(members))
+	for _, m := range members {
+		byID[m.User.ID] = m
+	}
+	linkedTo := make(map[int64]string, len(links)) // GitHub account ID -> Discord ID
+	for discordID, l := range links {
+		linkedTo[l.GitHubID] = discordID
+	}
+	type row struct {
+		login   string
+		member  string
+		roles   string
+		dollars int
+	}
+	rows := make([]row, 0, len(sponsors))
+	linked, private := 0, 0
+	for id, s := range sponsors {
+		r := row{login: s.Login, dollars: s.Dollars}
+		discordID, ok := linkedTo[id]
+		switch {
+		case ok:
+			linked++
+			if m := byID[discordID]; m == nil {
+				r.member = discordID + " (not in the server)"
+			} else {
+				r.member = fmt.Sprintf("%s (%s)", m.User.Username, m.User.ID)
+				if held := cfg.heldLabels(m.Roles); len(held) != 0 {
+					r.roles = strings.Join(held, ", ")
+				} else {
+					r.roles = "none"
+				}
+			}
+		case s.Private:
+			private++
+			continue
+		default:
+			r.member = "not linked"
+		}
+		rows = append(rows, r)
+	}
+	slices.SortFunc(rows, func(x, y row) int {
+		return cmp.Or(cmp.Compare(y.dollars, x.dollars), cmp.Compare(x.login, y.login))
+	})
+	cells := make([][]string, 0, len(rows)+1)
+	cells = append(cells, []string{"GitHub", "Monthly", "Discord member", "Roles"})
+	for _, r := range rows {
+		cells = append(cells, []string{r.login, tierLabel(r.dollars), r.member, r.roles})
+	}
+	var buffer strings.Builder
+	fmt.Fprintf(&buffer, "Active monthly sponsors (%d)\n", len(rows))
+	writeTable(&buffer, cells)
+	fmt.Fprintf(&buffer, "\nPrivate sponsors not linked to a member (not listed): %d\n", private)
+	summary = fmt.Sprintf("%d active sponsors: %d linked to a member, %d not linked (%d of them private).",
+		len(sponsors), linked, len(sponsors)-linked, private)
+	return summary, buffer.String()
+}
+
+// writeTable writes rows as indented, space-aligned columns.
+func writeTable(buffer *strings.Builder, rows [][]string) {
+	var widths []int
+	for _, row := range rows {
+		for i, cell := range row {
+			if i == len(widths) {
+				widths = append(widths, 0)
+			}
+			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
+		}
+	}
+	for _, row := range rows {
+		padded := make([]string, len(row))
+		for i, cell := range row {
+			padded[i] = cell + strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell))
+		}
+		fmt.Fprintf(buffer, "  %s\n", strings.TrimRight(strings.Join(padded, "  "), " "))
+	}
 }

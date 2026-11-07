@@ -29,6 +29,7 @@ The bot only makes outbound connections. It needs no public address, open port, 
 | `/unlink`                     | Everyone     | Removes the member's link and sponsor roles                       |
 | `/sponsor link member github` | Manage Roles | Links a member to a GitHub user or organization by login          |
 | `/sponsor unlink member`      | Manage Roles | Removes a member's link and sponsor roles                         |
+| `/sponsor list`               | Manage Roles | Lists the active sponsors with their Discord members and roles    |
 | `/sponsor audit`              | Manage Roles | Reports roles, links and sponsors that need attention             |
 | `/sponsor sync`               | Manage Roles | Checks GitHub and updates roles immediately                       |
 
@@ -39,7 +40,7 @@ proves which GitHub account is theirs. No permissions are requested and the resu
 
 Linking the same GitHub account to a second Discord member moves the link, and the first member loses the roles.
 
-The audit report names public sponsors who have not linked, but only counts private ones.
+The list and audit reports name public sponsors who have not linked, but only count private ones.
 
 ## Setup
 

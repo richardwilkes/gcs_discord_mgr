@@ -45,6 +45,17 @@ func (c *config) roleLabel(role string) string {
 	return ""
 }
 
+// heldLabels returns the labels of the managed roles among roles, in the order of managedRoles.
+func (c *config) heldLabels(roles []string) []string {
+	var held []string
+	for _, role := range c.managedRoles() {
+		if slices.Contains(roles, role) {
+			held = append(held, c.roleLabel(role))
+		}
+	}
+	return held
+}
+
 // desiredRoles returns the roles that someone sponsoring at dollars a month should hold: the sponsor role, plus the
 // role of the highest tier that does not exceed dollars, if there is one. Zero dollars means not sponsoring.
 func (c *config) desiredRoles(dollars int) []string {
