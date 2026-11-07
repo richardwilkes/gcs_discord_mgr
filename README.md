@@ -178,6 +178,38 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
+### Checking status
+
+macOS:
+
+```
+launchctl list | grep gcs-discord-mgr
+```
+
+This prints three columns: PID, last exit status, label. A number in the PID column means the bot is running; `-` means
+it is not. The exit status is from the last time it stopped: `0` is a clean exit, a positive number is the exit code
+and a negative number is the signal that killed it. No output at all means the agent is not loaded, so run the
+`launchctl load` command above. For the full picture, including the run count and why it last exited:
+
+```
+launchctl print gui/$(id -u)/com.trollworks.gcs-discord-mgr
+```
+
+Linux:
+
+```
+systemctl status gcs-discord-mgr
+```
+
+Either one only tells you whether the process is up. For what the bot is actually doing, read the log. By default it
+is written to `~/Library/Logs/com.trollworks.gcs-discord-mgr/gcs_discord_mgr.log` on macOS and
+`~/.local/share/com.trollworks.gcs-discord-mgr/Logs/gcs_discord_mgr.log` on Linux, under the service's user; `-log-file`
+changes the location. A healthy bot shows a `connected` line from its last start and no errors on recent passes:
+
+```
+tail -n 50 ~/Library/Logs/com.trollworks.gcs-discord-mgr/gcs_discord_mgr.log
+```
+
 ## Updating
 
 The bot keeps no state in memory that matters across a restart — the links are in `links.json` and everything else is
@@ -217,9 +249,8 @@ moment and the next poll starts the interval over.
    sudo systemctl restart gcs-discord-mgr
    ```
 
-4. Confirm it came back: the log shows a new `connected` line and the bot appears online in the server's member list.
-   On macOS, `launchctl list | grep gcs-discord-mgr` should show a PID and a last-exit status of 0; on Linux,
-   `systemctl status gcs-discord-mgr` should report it active.
+4. Confirm it came back, as described in [Checking status](#checking-status): the service shows a PID, the log shows
+   a new `connected` line, and the bot appears online in the server's member list.
 
 If the new version misbehaves, put the previous binary back (`git checkout <old-tag-or-commit>` and rebuild, or restore
 the saved copy) and restart the service the same way.
